@@ -4,6 +4,13 @@
 #include <vector>
 #include <sstream>
 
+struct Task {
+    int id;
+    std::string item;
+    int completed;
+    int inProgress;
+};
+
 void executeHelp();
 bool validCommand(const std::string &command);
 void executeAdd(std::string item);
@@ -12,6 +19,9 @@ void executeViewList();
 void executeUpdate(int updateId, std::string new_item);
 void executeDone(int updateId);
 void executeInProgress(int updateId);
+void saveTasks(std::vector<Task> task);
+std::vector<Task> loadTasks();
+
 
 int main(int argc, char *argv[])
 {
@@ -86,6 +96,38 @@ bool validCommand(const std::string &command)
     return command == "add" || command == "delete" || command == "update" || command == "list" || command == "help" || command == "done" || command == "make";
 }
 
+
+Task praseTask(const std::string& line){
+    size_t pos1 = line.find("|");
+    size_t pos2 = line.find("|", pos1 + 1);
+    size_t pos3 = line.find("|", pos2 + 1);
+    
+    if(pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos){
+        throw std::runtime_error("Invalid task format");
+    }
+
+    int id = std::stoi(line.substr(0, pos1));
+    std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
+    int completed = std::stoi(line.substr(pos2 + 1, pos3 - pos2 - 1));
+    int inProgress = std::stoi(line.substr(pos3 + 1));
+
+    Task task;
+    task.id = id;
+    task.item = item;
+    task.completed = completed;
+    task.inProgress = inProgress;
+
+    return task;
+}
+
+std::string stringTask(Task task){
+    std::string id = std::to_string(task.id);
+    std::string item = task.item;
+    std::string completed = std::to_string(task.completed);
+    std::string inProgress = std::to_string(task.inProgress);
+    return id + "|" + item + "|" + completed + "|" + inProgress + "\n";
+}
+
 void executeHelp()
 {
     std::cout << "Available commands:\n";
@@ -100,110 +142,65 @@ void executeHelp()
 }
 
 void executeAdd(std::string item){
-    std::ifstream infile("tasks.txt");
-    int lastId = 0;
-    std::string line;
-    while (std::getline(infile, line)) {
-        if(line.empty()) continue;
-        size_t pos = line.find("|");
-        if(pos != std::string::npos) {
-            lastId = std::stoi(line.substr(0, pos));
-        }
-    }
-    infile.close();
+    std::vector<Task> tasks = loadTasks();
 
+    int lastId = tasks.back().id;
     int newId = lastId + 1;
 
+    Task new_task;
+    new_task.id = newId;
+    new_task.item = item;
+    new_task.completed = 0;
+    new_task.inProgress = 0;
+    std::string task_string = stringTask(new_task);
+
     std::ofstream outfile("tasks.txt", std::ios::app);
-    outfile << newId << "|" << item << "|" << 0 << "|" << 0 << "\n";
+    outfile << task_string;
     outfile.close();
 
     std::cout << "Task added with ID: " << newId << "\n";
 }
 
 void executeDelete(int deleteId){
-    std::ifstream infile("tasks.txt");
-    std::vector<std::string> tasks;
-    std::string line;
-    while(std::getline(infile, line)){
-        if(line.empty()){continue;}
-        size_t pos = line.find("|");
-        if(pos != std::string::npos){
-            int id = std::stoi(line.substr(0, pos));
-            if(deleteId != id){
-                tasks.push_back(line);
-            }
-
+    std::vector<Task> tasks = loadTasks();
+    std::vector<Task> new_tasks;
+    bool found = false;
+    for(const Task& task: tasks){
+        if(task.id != deleteId){
+            new_tasks.push_back(task);
+            found = true;
         }
     }
-    infile.close();
-    std::ofstream outfile("tasks.txt", std::ios::trunc);
-    for(const std::string& t: tasks){
-        outfile << t << "\n";
+    saveTasks(new_tasks);
+    if(found){
+        std::cout << "Task delted with ID: " << deleteId << "\n";
+    }else{
+        std::cout << "No task is found at ID: " << deleteId << "\n";
     }
-    outfile.close();
-    std::cout << "Task delted with ID: " << deleteId;
 }
 
 void executeViewList(){
-    std::cout << "---View Tasks---" << "\n";
-    std::ifstream infile("tasks.txt");
-    std::string line;
-    while(std::getline(infile, line)){
-        if(line.empty()){continue;}
-        size_t pos1 = line.find("|");
-        size_t pos2 = line.find("|", pos1 + 1);
-        size_t pos3 = line.find("|", pos2 + 1);
-        if(pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos){
-            continue;
-        }
+    std::vector<Task> tasks = loadTasks();
 
-        int id = std::stoi(line.substr(0, pos1));
-        std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        int completed = std::stoi(line.substr(pos2 + 1, pos2 - pos1 - 1));
-        int inProgress = std::stoi(line.substr(pos3 + 1));
-        std::cout << id << " " << item << " " << (completed ? "[x]" : "[ ]") << (inProgress ? " <- In Progress" : "") << "\n";
+    std::cout << "---View Tasks---" << "\n";
+    for(const Task& task: tasks){
+        std::cout << task.id << " " << task.item << " " << (task.completed ? "[x]" : "[ ]") << (task.inProgress ? " <- In Progress" : "") << "\n";
     }
-    infile.close();
     std::cout << "----------------" << "\n";
 }
 
 void executeUpdate(int updateId, std::string new_item){
-    std::ifstream infile("tasks.txt");
-    std::vector<std::string> tasks;
-    std::string line;
+    std::vector<Task> tasks = loadTasks();
     bool found = false;
-    
-    while(std::getline(infile, line)){
-        if(line.empty()) continue;
-        size_t pos1 = line.find("|");
-        size_t pos2 = line.find("|" , pos1 + 1);
-        
-        if(pos1 == std::string::npos || pos2 == std::string::npos){
-            continue;
-        }
 
-        int id = std::stoi(line.substr(0, pos1));
-        std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        int completed = std::stoi(line.substr(pos2 + 1));
-
-        if(updateId == id){
-            item = new_item;
+    for(Task& task: tasks){
+        if(task.id == updateId){
+            task.item = new_item;
             found = true;
         }
-
-        std::stringstream ss;
-        ss << id << "|" << item << "|" << completed;
-        tasks.push_back(ss.str());
     }
 
-    infile.close();
-    std::ofstream outfile("tasks.txt");
-    for(const std::string& task: tasks){
-        outfile << task << "\n";
-    }
-    outfile.close();
-
+    saveTasks(tasks);
 
     if(found){
         std::cout << "Task at ID " << updateId << " updated." << "\n";
@@ -213,37 +210,18 @@ void executeUpdate(int updateId, std::string new_item){
 }  
 
 void executeDone(int updateId){
-    std::ifstream infile("tasks.txt");
-    std::vector<std::string> tasks;
-    std::string line;
+    std::vector<Task> tasks = loadTasks();
     bool found = false;
-    
-    while(std::getline(infile, line)){
-        if(line.empty()) continue;
-        size_t pos1 = line.find("|");
-        size_t pos2 = line.find("|" , pos1 + 1);
-        
-        if(pos1 == std::string::npos || pos2 == std::string::npos){
-            continue;
-        }
-        int id = std::stoi(line.substr(0, pos1));
-        std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        int completed = std::stoi(line.substr(pos2 + 1));
 
-        if(updateId == id){
-            completed = 1;
+    for(Task& task: tasks){
+        if(task.id == updateId){
+            task.completed = 1;
+            task.inProgress = 0;
             found = true;
         }
-        std::stringstream ss;
-        ss << id << "|" << item << "|" << completed << "|" << 0;
-        tasks.push_back(ss.str());
     }
-    infile.close();
-    std::ofstream outfile("tasks.txt");
-    for(const std::string& task: tasks){
-        outfile << task << "\n";
-    }
-    outfile.close();
+
+    saveTasks(tasks);
 
     if(found){
         std::cout << "Task at ID " << updateId << " marked as Done." << "\n";
@@ -253,47 +231,48 @@ void executeDone(int updateId){
 }
 
 void executeInProgress(int updateId){
-    std::ifstream infile("tasks.txt");
-    std::vector<std::string> tasks;
-    std::string line;
+    std::vector<Task> tasks = loadTasks();
     bool found = false;
-    
-    while(std::getline(infile, line)){
-        if(line.empty()) continue;
-        size_t pos1 = line.find("|");
-        size_t pos2 = line.find("|" , pos1 + 1);
-        size_t pos3 = line.find("|", pos2 + 1);
-        
-        if(pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos){
-            continue;
-        }
-        int id = std::stoi(line.substr(0, pos1));
-        std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        int completed = std::stoi(line.substr(pos2 + 1, pos2 - pos1 - 1));
-        int inProgress = std::stoi(line.substr(pos3 + 1));
 
-        if(updateId == id){
-            if(completed){
+    for(Task& task: tasks){
+         if(task.id == updateId){
+            if(task.completed){
                 std::cout << "The taks is already completed.\n";
                 return;
             }
             found = true;
-            inProgress = 1;
+            task.inProgress = 1;
         }
-        std::stringstream ss;
-        ss << id << "|" << item << "|" << completed << "|" << inProgress;
-        tasks.push_back(ss.str());
     }
-    infile.close();
-    std::ofstream outfile("tasks.txt");
-    for(const std::string& task: tasks){
-        outfile << task << "\n";
-    }
-    outfile.close();
+
+    saveTasks(tasks);
 
     if(found){
         std::cout << "Task at ID " << updateId << " marked as In Progress." << "\n";
     }else{
         std::cout << "Id doesn't exist in the list." << "\n";
     }
+}
+
+void saveTasks(std::vector<Task> tasks){
+    if(tasks.empty()) return;
+    std::ofstream outfile("tasks.txt", std::ios::trunc);
+    for(const Task& task: tasks){
+        std::string task_string = stringTask(task);
+        outfile << task_string;
+    }
+    outfile.close();
+}
+
+std::vector<Task> loadTasks(){
+    std::vector<Task> tasks;
+    std::ifstream infile("tasks.txt");
+    std::string line;
+    while(std::getline(infile, line)){
+        if(line.empty()) continue;
+        Task task = praseTask(line);
+        tasks.push_back(task);
+    }
+    infile.close();
+    return tasks;
 }
