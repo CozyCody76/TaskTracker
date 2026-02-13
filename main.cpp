@@ -125,6 +125,7 @@ void executeHelp()
     std::cout << "  delete     - Delete an existing item\n";
     std::cout << "  update     - Update an existing item\n";
     std::cout << "  list       - List all items\n";
+    std::cout << "  list -flag - --done, --inprogress, --id, --item"; 
     std::cout << "  done       - Mark an existing item Done\n";
     std::cout << "  inprogress - Make an existing item In Progress\n";
     std::cout << "  help       - Show this help message\n";
