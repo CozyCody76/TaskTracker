@@ -5,12 +5,32 @@
 #include <sstream>
 #include <unordered_map>
 #include <functional>
+#include <algorithm>
+
+enum Status{
+    Pending,
+    Done,
+    InProgress,
+};
 
 struct Task {
     int id;
     std::string item;
-    int completed;
-    int inProgress;
+    Status status;
+
+    void makeDone(){
+        if(status == Status::Done){
+            throw std::logic_error("Task already completed");
+        }
+        status = Status::Done;
+    }  
+
+    void makeInProgress(){
+        if(status == Status::Done){
+            throw std::logic_error("Cannot move Done Task to InProgress");
+        }
+        status = Status::InProgress;
+    }
 };
 
 using CommandFunctionType = std::function<void(int, char**)>;
@@ -43,25 +63,22 @@ int main(int argc, char *argv[])
 
 //---handling loading and saving data
 
-Task praseTask(const std::string& line){
+Task parseTask(const std::string& line){
     size_t pos1 = line.find("|");
     size_t pos2 = line.find("|", pos1 + 1);
-    size_t pos3 = line.find("|", pos2 + 1);
     
-    if(pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos){
+    if(pos1 == std::string::npos || pos2 == std::string::npos){
         throw std::runtime_error("Invalid task format");
     }
 
     int id = std::stoi(line.substr(0, pos1));
     std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
-    int completed = std::stoi(line.substr(pos2 + 1, pos3 - pos2 - 1));
-    int inProgress = std::stoi(line.substr(pos3 + 1));
+    int status = std::stoi(line.substr(pos2 + 1));
 
     Task task;
     task.id = id;
     task.item = item;
-    task.completed = completed;
-    task.inProgress = inProgress;
+    task.status = static_cast<Status>(status);
 
     return task;
 }
@@ -69,9 +86,8 @@ Task praseTask(const std::string& line){
 std::string stringTask(const Task& task){
     std::string id = std::to_string(task.id);
     std::string item = task.item;
-    std::string completed = std::to_string(task.completed);
-    std::string inProgress = std::to_string(task.inProgress);
-    return id + "|" + item + "|" + completed + "|" + inProgress + "\n";
+    std::string status = std::to_string(task.status);
+    return id + "|" + item + "|" + status + "\n";
 }
 
 void saveTasks(const std::vector<Task>& tasks){
@@ -90,7 +106,7 @@ std::vector<Task> loadTasks(){
     while(std::getline(infile, line)){
         if(line.empty()) continue;
         try{
-            Task task = praseTask(line);
+            Task task = parseTask(line);
             tasks.push_back(task);
         }catch(const std::exception& e){
             std::cout << "Loading data fail.\n";
@@ -109,26 +125,29 @@ void executeHelp()
     std::cout << "  delete     - Delete an existing item\n";
     std::cout << "  update     - Update an existing item\n";
     std::cout << "  list       - List all items\n";
-    std::cout << "  done       - Mark an existing item Done";
-    std::cout << "  inprogress - Make an existing item In Progress";
+    std::cout << "  done       - Mark an existing item Done\n";
+    std::cout << "  inprogress - Make an existing item In Progress\n";
     std::cout << "  help       - Show this help message\n";
 }
 
 void executeAdd(std::string item){
     std::vector<Task> tasks = loadTasks();
+    int newId = 0;
 
-    int lastId = tasks.empty() ? 0 : tasks.back().id;
-    int newId = lastId + 1;
+    for(const Task& task : tasks){
+        if(task.id > newId){
+            newId = task.id;
+        }
+    }
 
     Task new_task;
-    new_task.id = newId;
+    new_task.id = newId + 1;
     new_task.item = item;
-    new_task.completed = 0;
-    new_task.inProgress = 0;
+    new_task.status = Status::Pending;
     tasks.push_back(new_task);
     saveTasks(tasks);
 
-    std::cout << "Task added with ID: " << newId << "\n";
+    std::cout << "Task added with ID: " << new_task.id << "\n";
 }
 
 void executeDelete(int deleteId){
@@ -151,12 +170,75 @@ void executeDelete(int deleteId){
     }
 }
 
-void executeViewList(){
+std::vector<Task> handleViewListFlags(int argc, char** argv){
     std::vector<Task> tasks = loadTasks();
+    if(argc < 3) return tasks;
+
+    std::vector<Task> filtered_tasks;
+
+    bool showPendingOnly = false;
+    bool showDoneOnly = false;
+    bool showInProgressOnly = false;
+    bool sortById = false;
+    bool sortByItem = false;
+
+    for(int i = 2; i < argc; i++){
+        std::string flag = argv[i];
+        if(flag == "--pending"){
+            showPendingOnly = true;
+            showDoneOnly = false;
+            showInProgressOnly = false;
+        }else if(flag == "--done"){
+            showDoneOnly = true;
+            showInProgressOnly = false;
+            showPendingOnly = false;
+        }else if(flag == "--inprogress"){
+            showInProgressOnly = true;
+            showDoneOnly = false;
+            showPendingOnly = false;
+        }else if(flag == "--id"){
+            sortById = true;
+            sortByItem = false;
+        }else if(flag == "--item"){
+            sortByItem = true;
+            sortById = false;
+        }else{
+            std::cout << "Invalid flag for list.\n";
+            break;
+        }
+    }
+
+    if(sortById){
+        std::sort(tasks.begin(), tasks.end(), [](const Task& a, const Task& b){
+            return a.id < b.id;
+        });
+    }
+
+    if(sortByItem){
+        std::sort(tasks.begin(), tasks.end(), [](const Task& a, const Task& b){
+            return a.item < b.item;
+        });
+    }
+
+    if(showPendingOnly || showDoneOnly || showInProgressOnly){
+        for(const Task& task : tasks){
+            if(showPendingOnly && task.status != Status::Pending) continue;
+            if(showDoneOnly && task.status != Status::Done) continue;
+            if(showInProgressOnly && task.status != Status::InProgress) continue;
+            filtered_tasks.push_back(task);
+        }
+    }
+
+    return filtered_tasks;
+
+}
+void executeViewList(int argc, char* argv[]){
+    std::vector<Task>tasks = handleViewListFlags(argc ,argv);
+
 
     std::cout << "---View Tasks---" << "\n";
     for(const Task& task: tasks){
-        std::cout << task.id << " " << task.item << " " << (task.completed ? "[x]" : "[ ]") << (task.inProgress ? " <- In Progress" : "") << "\n";
+        std::cout << task.id << " " << task.item << " " << (task.status == Status :: Done ? "[x]" : "[ ]") << (task.status == Status::InProgress ? " <- In Progress" : "") << "\n";
     }
     std::cout << "----------------" << "\n";
 }
@@ -187,9 +269,12 @@ void executeDone(int updateId){
 
     for(Task& task: tasks){
         if(task.id == updateId){
-            task.completed = 1;
-            task.inProgress = 0;
-            found = true;
+            try{
+                task.makeDone();
+                found = true;
+            }catch(const std::logic_error& e){
+                std::cout << e.what() << "\n";
+            }
         }
     }
 
@@ -208,12 +293,12 @@ void executeInProgress(int updateId){
 
     for(Task& task: tasks){
          if(task.id == updateId){
-            if(task.completed){
-                std::cout << "The taks is already completed.\n";
-                return;
+            try{
+                task.makeInProgress();
+                found = true;
+            }catch(const std::logic_error& e){
+                std::cout << e.what() << "\n";
             }
-            found = true;
-            task.inProgress = 1;
         }
     }
 
@@ -231,7 +316,7 @@ void handleHelp(int argc, char* argv[]){
 }
 
 void handleList(int argc, char* argv[]){
-    executeViewList();
+    executeViewList(argc, argv);
 }
 
 void handleAdd(int argc, char* argv[]){
@@ -290,6 +375,7 @@ void handleDone(int argc, char* argv[]){
         std::cout << "Invalid argument type.";
     }
 }
+
 void handleInProgress(int argc, char* argv[]){
     if(argc != 3){
         std::cout << "Invalid argument format.";
