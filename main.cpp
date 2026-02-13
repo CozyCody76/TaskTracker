@@ -6,6 +6,9 @@
 #include <unordered_map>
 #include <functional>
 #include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 
 enum Status{
     Pending,
@@ -17,6 +20,8 @@ struct Task {
     int id;
     std::string item;
     Status status;
+    std::string createdAt;
+    std::string updatedAt;
 
     void makeDone(){
         if(status == Status::Done){
@@ -61,24 +66,43 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+//--date and time funciton
+
+std::string getCurrentDateTime() {
+    auto now = std::chrono::system_clock::now();          // get current time
+    std::time_t now_time = std::chrono::system_clock::to_time_t(now);  // convert to time_t
+
+    std::tm* tm_ptr = std::localtime(&now_time);         // convert to local time
+
+    std::ostringstream oss;
+    oss << std::put_time(tm_ptr, "%Y-%m-%d %H:%M:%S");   // format as YYYY-MM-DD HH:MM:SS
+    return oss.str();
+}
+
 //---handling loading and saving data
 
 Task parseTask(const std::string& line){
     size_t pos1 = line.find("|");
     size_t pos2 = line.find("|", pos1 + 1);
-    
-    if(pos1 == std::string::npos || pos2 == std::string::npos){
+    size_t pos3 = line.find("|", pos2 + 1);
+    size_t pos4 = line.find("|", pos3 + 1);
+
+    if(pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos || pos4 == std::string::npos){
         throw std::runtime_error("Invalid task format");
     }
 
     int id = std::stoi(line.substr(0, pos1));
     std::string item = line.substr(pos1 + 1, pos2 - pos1 - 1);
-    int status = std::stoi(line.substr(pos2 + 1));
+    int status = std::stoi(line.substr(pos2 + 1, pos3 - pos2 - 1));
+    std::string createdAt = line.substr(pos3 + 1, pos4 - pos3 - 1);
+    std::string updatedAt = line.substr(pos4 + 1);
 
     Task task;
     task.id = id;
     task.item = item;
     task.status = static_cast<Status>(status);
+    task.createdAt = createdAt;
+    task.updatedAt = updatedAt;
 
     return task;
 }
@@ -87,7 +111,9 @@ std::string stringTask(const Task& task){
     std::string id = std::to_string(task.id);
     std::string item = task.item;
     std::string status = std::to_string(task.status);
-    return id + "|" + item + "|" + status + "\n";
+    std::string createdAt = task.createdAt;
+    std::string updatedAt = task.updatedAt;
+    return id + "|" + item + "|" + status + "|" + createdAt + "|" + updatedAt + "\n";
 }
 
 void saveTasks(const std::vector<Task>& tasks){
@@ -145,6 +171,8 @@ void executeAdd(std::string item){
     new_task.id = newId + 1;
     new_task.item = item;
     new_task.status = Status::Pending;
+    new_task.createdAt = getCurrentDateTime();
+    new_task.updatedAt = getCurrentDateTime();
     tasks.push_back(new_task);
     saveTasks(tasks);
 
@@ -175,7 +203,7 @@ std::vector<Task> handleViewListFlags(int argc, char** argv){
     std::vector<Task> tasks = loadTasks();
     if(argc < 3) return tasks;
 
-    std::vector<Task> filtered_tasks;
+    std::vector<Task> filtered_tasks = tasks;
 
     bool showPendingOnly = false;
     bool showDoneOnly = false;
@@ -210,13 +238,13 @@ std::vector<Task> handleViewListFlags(int argc, char** argv){
     }
 
     if(sortById){
-        std::sort(tasks.begin(), tasks.end(), [](const Task& a, const Task& b){
+        std::sort(filtered_tasks.begin(), filtered_tasks.end(), [](const Task& a, const Task& b){
             return a.id < b.id;
         });
     }
 
     if(sortByItem){
-        std::sort(tasks.begin(), tasks.end(), [](const Task& a, const Task& b){
+        std::sort(filtered_tasks.begin(), filtered_tasks.end(), [](const Task& a, const Task& b){
             return a.item < b.item;
         });
     }
@@ -233,15 +261,17 @@ std::vector<Task> handleViewListFlags(int argc, char** argv){
     return filtered_tasks;
 
 }
+
 void executeViewList(int argc, char* argv[]){
     std::vector<Task>tasks = handleViewListFlags(argc ,argv);
 
 
-    std::cout << "---View Tasks---" << "\n";
+    std::cout << "---------------------------- View Task ----------------------------" << "\n\n";
     for(const Task& task: tasks){
-        std::cout << task.id << " " << task.item << " " << (task.status == Status :: Done ? "[x]" : "[ ]") << (task.status == Status::InProgress ? " <- In Progress" : "") << "\n";
+        std::cout << "Created At: " << task.createdAt << "   Updated At: " << (task.createdAt == task.updatedAt ? "" : task.updatedAt) << "\n";
+        std::cout << task.id << " " << task.item << " " << (task.status == Status :: Done ? "[x]" : "[ ]") << (task.status == Status::InProgress ? " <- In Progress" : "") << "\n\n";
     }
-    std::cout << "----------------" << "\n";
+    std::cout << "-------------------------------------------------------------------" << "\n";
 }
 
 void executeUpdate(int updateId, std::string new_item){
@@ -251,6 +281,7 @@ void executeUpdate(int updateId, std::string new_item){
     for(Task& task: tasks){
         if(task.id == updateId){
             task.item = new_item;
+            task.updatedAt = getCurrentDateTime();
             found = true;
         }
     }
